@@ -1,0 +1,2253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Story Room — Script Coverage &amp; Plot Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  // Some CDN edges serve a worker file that pdf.js's version check rejects,
+  // which silently falls back to a "fake worker" (main thread, slower, and
+  // logs a console warning). Point at a version-pinned mirror that's known
+  // to match exactly, so the real background worker loads.
+  if(window.pdfjsLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
+<style>
+  :root{
+    --paper: #FAF8F3;
+    --paper-line: #E3DECF;
+    --ink: #1C1A17;
+    --ink-soft: #55504A;
+    --recommend: #2F6B4F;
+    --recommend-bg: #E7EFE9;
+    --consider: #9C6B14;
+    --consider-bg: #F3E9D6;
+    --pass: #A2403F;
+    --pass-bg: #F3E1DF;
+    --pencil-blue: #2C4A6E;
+    --pencil-blue-bg: #E7ECF1;
+    --forge: #9C3B23;
+    --forge-bg: #F3E3DC;
+    --mono: 'Courier Prime', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+  }
+
+  *{ box-sizing: border-box; }
+
+  body{
+    margin:0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet{
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 32px 96px;
+  }
+
+  /* ---------- Letterhead ---------- */
+  .letterhead{
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+    display:flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .letterhead h1{
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+    margin: 0;
+  }
+  .letterhead .tag{
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin-top: 4px;
+  }
+  .letterhead .date{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-align: right;
+  }
+
+  /* ---------- API key panel (shared) ---------- */
+  .key-panel{
+    border: 1px solid var(--paper-line);
+    background: #fff;
+    padding: 14px 16px;
+    margin-bottom: 24px;
+    font-size: 13px;
+  }
+  .key-panel.connected{ border-color: var(--recommend); }
+  .key-panel-head{
+    display:flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer;
+  }
+  .key-panel-head .label{ font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+  .key-panel.connected .key-panel-head .label{ color: var(--recommend); }
+  .key-panel-head .caret{
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft); transition: transform .15s ease;
+  }
+  .key-panel.open .key-panel-head .caret{ transform: rotate(90deg); }
+  .key-panel-body{ display:none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--paper-line); }
+  .key-panel.open .key-panel-body{ display:block; }
+  .key-panel-body p{ margin: 0 0 10px; color: var(--ink-soft); font-size: 13px; }
+  .key-row{ display:flex; gap: 8px; flex-wrap: wrap; }
+  .key-row input{
+    flex: 1; min-width: 200px; font-family: var(--mono); font-size: 13px;
+    padding: 10px 12px; border: 1px solid var(--paper-line); border-radius: 2px;
+  }
+  .key-row button{
+    font-family: var(--mono); font-size: 12px; background: var(--ink); color: var(--paper);
+    border: none; padding: 0 16px; border-radius: 2px; cursor: pointer;
+  }
+  .key-row button:hover{ background: var(--pencil-blue); }
+
+  /* ---------- Tool tabs ---------- */
+  .app-tabs{ display:flex; gap: 8px; margin-bottom: 32px; }
+  .app-tabs button{
+    flex: 1;
+    font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
+    background: #fff; border: 2px solid var(--paper-line); color: var(--ink-soft);
+    padding: 14px 18px; border-radius: 2px; cursor: pointer;
+  }
+  .app-tabs button.active.tab-coverage{ background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .app-tabs button.active.tab-forge{ background: var(--forge); color: #fff; border-color: var(--forge); }
+
+  .session-bar{
+    display:flex; align-items:center; gap: 10px; flex-wrap: wrap; margin-bottom: 28px;
+  }
+  .session-bar button{
+    font-family: var(--mono); font-size: 11px; background: none; border: 1px solid var(--ink-soft);
+    color: var(--ink-soft); padding: 6px 12px; border-radius: 2px; cursor: pointer;
+  }
+  .session-bar button:hover{ border-color: var(--ink); color: var(--ink); }
+  .session-bar .hint{ margin: 0; }
+
+  [contenteditable="true"]{
+    outline: none; border-bottom: 1px dashed transparent; cursor: text;
+  }
+  [contenteditable="true"]:hover{ border-bottom-color: var(--paper-line); }
+  [contenteditable="true"]:focus{ border-bottom-color: var(--forge); background: var(--forge-bg); }
+  .edit-hint{
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin: -20px 0 24px;
+  }
+
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  .bridge-btn{
+    font-family: var(--mono); font-size: 11px; background: none; border: 1px dashed var(--ink-soft);
+    color: var(--ink-soft); padding: 8px 14px; border-radius: 2px; cursor: pointer; margin-top: 14px;
+  }
+  .bridge-btn:hover{ border-style: solid; color: var(--ink); border-color: var(--ink); }
+
+  /* ---------- Format / genre toggle ---------- */
+  .format-toggle{ display:flex; gap: 8px; margin-bottom: 24px; }
+  .format-toggle button{
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px;
+    background: #fff; border: 1px solid var(--paper-line); color: var(--ink-soft);
+    padding: 10px 18px; border-radius: 2px; cursor: pointer;
+  }
+  .format-toggle button.active{ background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+  /* ---------- Intake form ---------- */
+  .intake{ display: grid; grid-template-columns: 1fr 200px; gap: 22px; margin-bottom: 8px; }
+  @media (max-width: 640px){ .intake{ grid-template-columns: 1fr; } }
+  .field label{ display:block; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+  textarea, select, input[type=file]{
+    font-family: var(--mono); font-size: 13px; color: var(--ink); background: #fff;
+    border: 1px solid var(--paper-line); border-radius: 2px; padding: 12px; width: 100%;
+  }
+  textarea{ min-height: 260px; resize: vertical; line-height: 1.6; }
+  textarea:focus, select:focus{ outline: 2px solid var(--pencil-blue); outline-offset: 1px; }
+  select{ height: 42px; }
+  .filerow{ margin-top: 10px; font-size: 12px; color: var(--ink-soft); font-family: var(--mono); }
+  .filerow button{
+    font-family: var(--mono); font-size: 12px; background: none; border: 1px solid var(--paper-line);
+    padding: 5px 10px; border-radius: 2px; cursor: pointer; color: var(--ink);
+  }
+  .filerow button:hover{ border-color: var(--ink); }
+  .side-field{ display:flex; flex-direction:column; }
+  .hint{ font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
+  .checkbox-label{
+    display:flex; align-items:flex-start; gap: 6px; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); margin-top: 10px; cursor: pointer; line-height: 1.4;
+  }
+  .checkbox-label input{ margin-top: 2px; }
+
+  .analyze-btn{
+    margin-top: auto; font-family: var(--mono); font-weight: 700; font-size: 14px;
+    background: var(--ink); color: var(--paper); border: none; padding: 14px 16px;
+    border-radius: 2px; cursor: pointer; letter-spacing: 0.5px;
+  }
+  .analyze-btn:hover{ background: var(--pencil-blue); }
+  .analyze-btn:disabled{ background: #B9B4AA; cursor: default; }
+
+  .forge-btn{
+    margin-top: auto; font-family: var(--mono); font-weight: 700; font-size: 14px;
+    background: var(--forge); color: #fff; border: none; padding: 14px 16px;
+    border-radius: 2px; cursor: pointer; letter-spacing: 0.5px;
+  }
+  .forge-btn:hover{ background: #7E2F1C; }
+  .forge-btn:disabled{ background: #B9B4AA; cursor: default; }
+
+  /* ---------- Status / error ---------- */
+  .status{ margin: 28px 0; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); display: none; }
+  .status.active{ display: block; }
+  .status .bar{ height: 3px; background: var(--paper-line); margin-top: 8px; position: relative; overflow: hidden; }
+  .status .bar > i{ position:absolute; left:0; top:0; bottom:0; width: 0%; transition: width .4s ease; }
+  #covStatus .bar > i{ background: var(--pencil-blue); }
+  #pfStatus .bar > i{ background: var(--forge); }
+
+  .error{
+    display:none; border-left: 3px solid var(--pass); background: var(--pass-bg); color: var(--pass);
+    font-family: var(--mono); font-size: 13px; padding: 12px 14px; margin: 20px 0;
+  }
+  .error.active{ display:block; }
+
+  /* ---------- Results shell ---------- */
+  .results{ display:none; margin-top: 44px; }
+  .results.active{ display:block; }
+  .section{ margin-bottom: 36px; }
+  .section-title{
+    font-family: var(--mono); font-size: 13px; color: var(--ink-soft); margin: 0 0 14px;
+    letter-spacing: 0.5px; display:flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .section p{ margin: 0 0 10px; }
+
+  /* ---------- Coverage: verdict / score ---------- */
+  .verdict-row{
+    display:flex; align-items:center; gap: 28px; padding-bottom: 28px;
+    border-bottom: 1px solid var(--paper-line); margin-bottom: 32px; flex-wrap: wrap;
+  }
+  .score-big{ display:flex; flex-direction: column; align-items: flex-start; line-height: 1; }
+  .score-big .num{ font-family: var(--mono); font-weight: 700; font-size: 44px; color: var(--ink); }
+  .score-big .num span{ font-size: 22px; }
+  .score-big .label{ font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 4px; }
+
+  .stamp{
+    font-family: var(--mono); font-weight: 700; font-size: 20px; letter-spacing: 1px;
+    border: 3px solid currentColor; border-radius: 4px; padding: 10px 18px;
+    transform: rotate(-4deg); display:inline-block;
+  }
+  .stamp.recommend{ color: var(--recommend); }
+  .stamp.consider{ color: var(--consider); }
+  .stamp.pass{ color: var(--pass); }
+  .verdict-meta{ font-size: 14px; color: var(--ink-soft); }
+  .verdict-meta strong{ color: var(--ink); }
+
+  .rewrite-all-btn, .write-all-btn{
+    font-family: var(--mono); font-size: 11px; background: none; border: 1px solid var(--pencil-blue);
+    color: var(--pencil-blue); padding: 5px 10px; border-radius: 2px; cursor: pointer;
+  }
+  .rewrite-all-btn:hover, .write-all-btn:hover{ background: var(--pencil-blue-bg); }
+  .rewrite-all-btn:disabled, .write-all-btn:disabled{ border-color: #B9B4AA; color: #B9B4AA; cursor: default; background:none; }
+
+  /* ---------- Coverage: chart ---------- */
+  .chart-wrap{ margin-bottom: 44px; }
+  .chart-wrap svg{ width:100%; height:auto; display:block; }
+  .chart-legend{
+    display:flex; gap: 18px; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+  }
+  .chart-legend span{ display:flex; align-items:center; gap:6px; }
+  .chart-legend i{ width:10px; height:10px; display:inline-block; border-radius:50%; }
+
+  /* ---------- Coverage: scene list ---------- */
+  .scene{
+    border-bottom: 1px solid var(--paper-line); padding: 18px 0;
+    display: grid; grid-template-columns: 8px 1fr; gap: 18px;
+  }
+  .scene:first-of-type{ border-top: 1px solid var(--paper-line); }
+  .scene .tab{ border-radius: 2px; }
+  .scene.recommend .tab{ background: var(--recommend); }
+  .scene.consider .tab{ background: var(--consider); }
+  .scene.pass .tab{ background: var(--pass); }
+  .scene-head{ display:flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; cursor: pointer; }
+  .scene-slug{ font-family: var(--mono); font-size: 13px; font-weight: 700; }
+  .scene-score{ font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+  .scene-body{ display:none; margin-top: 14px; font-size: 14px; }
+  .scene.open .scene-body{ display:block; }
+  .scene.open .scene-head .caret{ transform: rotate(90deg); }
+  .caret{
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft); display:inline-block;
+    transition: transform .15s ease; margin-right: 4px;
+  }
+  .note-block{ margin-bottom: 12px; }
+  .note-block h4{ font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin: 0 0 6px; }
+  .note-block ul{ margin: 0; padding-left: 18px; }
+  .note-block li{ margin-bottom: 4px; }
+  .note-block li.cut{ color: var(--pass); }
+  .note-block li.improve{ color: var(--consider); }
+  .tagword{ font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 2px; margin-right: 6px; }
+  .tagword.cut{ background: var(--pass-bg); color: var(--pass); }
+  .tagword.improve{ background: var(--consider-bg); color: var(--consider); }
+  .rewrite-action{ margin-top: 8px; }
+  .rewrite-btn{
+    font-family: var(--mono); font-size: 11px; background: none; border: 1px solid var(--pencil-blue);
+    color: var(--pencil-blue); padding: 6px 12px; border-radius: 2px; cursor: pointer;
+  }
+  .rewrite-btn:hover{ background: var(--pencil-blue-bg); }
+  .rewrite-btn:disabled{ border-color: #B9B4AA; color: #B9B4AA; cursor: default; background:none; }
+
+  /* ---------- Shared: rewrite/script output panel ---------- */
+  .rewrite-panel, .script-panel{
+    margin-top: 16px; border: 1px solid var(--pencil-blue); border-radius: 2px; overflow: hidden;
+  }
+  .rewrite-panel-head, .script-panel-head{
+    display:flex; justify-content: space-between; align-items:center; background: var(--pencil-blue-bg);
+    padding: 8px 12px; font-family: var(--mono); font-size: 11px; color: var(--pencil-blue);
+  }
+  .script-panel-head .btn-row{ display:flex; gap: 6px; }
+  .rewrite-panel-head button, .script-panel-head button{
+    font-family: var(--mono); font-size: 10px; background: none; border: 1px solid var(--pencil-blue);
+    color: var(--pencil-blue); padding: 3px 8px; border-radius: 2px; cursor: pointer;
+  }
+  .rewrite-panel-head button:hover, .script-panel-head button:hover{ background: #fff; }
+  .rewrite-text, .script-text{
+    font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; padding: 14px 16px;
+    background: #fff; line-height: 1.7; margin: 0;
+  }
+  .script-text{ max-height: 480px; overflow-y: auto; }
+  .rewrite-loading, .script-loading{ font-family: var(--mono); font-size: 12px; color: var(--ink-soft); padding: 10px 0; }
+
+  .write-btn{
+    font-family: var(--mono); font-size: 11px; background: none; border: 1px solid var(--pencil-blue);
+    color: var(--pencil-blue); padding: 6px 12px; border-radius: 2px; cursor: pointer; margin-top: 8px;
+  }
+  .write-btn:hover{ background: var(--pencil-blue-bg); }
+  .write-btn:disabled{ border-color: #B9B4AA; color: #B9B4AA; cursor: default; background:none; }
+
+  /* ---------- Forge: per-scene stakes cards ---------- */
+  .pf-scene-list{ padding: 4px; }
+  .pf-scene-card{ border-bottom: 1px solid var(--paper-line); }
+  .pf-scene-card:last-child{ border-bottom: none; }
+  .pf-scene-head{
+    display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 12px 0;
+  }
+  .pf-scene-slug{ font-family: var(--mono); font-weight: 700; font-size: 12px; color: var(--forge); }
+  .pf-scene-tabs{ display:flex; gap: 4px; }
+  .pf-tab{
+    font-family: var(--mono); font-size: 10px; background: none; border: 1px solid var(--paper-line);
+    color: var(--ink-soft); padding: 4px 10px; border-radius: 2px; cursor: pointer;
+  }
+  .pf-tab:hover{ border-color: var(--forge); color: var(--forge); }
+  .pf-tab.active{ background: var(--forge); border-color: var(--forge); color: #fff; }
+  .pf-tab:disabled{ opacity: 0.5; cursor: default; }
+  .pf-scene-text{ max-height: 320px; }
+
+  /* ---------- Forge: logline / characters / arc / act ---------- */
+  .logline-block{
+    border-left: 3px solid var(--forge); background: var(--forge-bg); padding: 18px 20px;
+    margin-bottom: 32px; font-size: 17px; font-style: italic; line-height: 1.5;
+  }
+  .logline-block .kicker{
+    display:block; font-family: var(--mono); font-style: normal; font-size: 11px;
+    color: var(--forge); margin-bottom: 8px; letter-spacing: 0.5px;
+  }
+  .char-card{ border-bottom: 1px solid var(--paper-line); padding: 12px 0; }
+  .char-card:first-child{ border-top: 1px solid var(--paper-line); }
+  .char-head{ display:flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .char-name{ font-family: var(--mono); font-weight: 700; font-size: 13px; }
+  .char-role{ font-family: var(--mono); font-size: 11px; color: var(--forge); }
+  .char-arc{ font-size: 14px; color: var(--ink-soft); }
+  .arc-row{ display:grid; grid-template-columns: 70px 1fr; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--paper-line); }
+  .arc-row:first-child{ border-top: 1px solid var(--paper-line); }
+  .arc-ep{ font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+  .arc-title{ font-family: var(--mono); font-weight: 700; font-size: 13px; margin-bottom: 3px; }
+  .arc-title-row{ display:flex; align-items:center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .arc-title-row .arc-title, .arc-title-row .act-name{ margin-bottom: 0; }
+  .coverage-badge{
+    font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;
+  }
+  .coverage-badge:empty{ display:none; }
+  .coverage-badge.recommend{ background: var(--recommend-bg); color: var(--recommend); }
+  .coverage-badge.consider{ background: var(--consider-bg); color: var(--consider); }
+  .coverage-badge.pass{ background: var(--pass-bg); color: var(--pass); }
+  .coverage-badge.loading{ background: var(--paper-line); color: var(--ink-soft); }
+  .arc-beat{ font-size: 14px; }
+  .act-block{ margin-bottom: 18px; }
+  .act-name{ font-family: var(--mono); font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--forge); }
+  .act-block ul{ margin: 0; padding-left: 20px; }
+  .act-block li{ margin-bottom: 6px; font-size: 14px; }
+  .comps-row{ display:flex; gap: 10px; flex-wrap: wrap; }
+  .comp-pill{
+    font-family: var(--mono); font-size: 12px; border: 1px solid var(--paper-line);
+    padding: 6px 12px; border-radius: 2px; background: #fff;
+  }
+  .enhance-btn{
+    font-family: var(--mono); font-weight: 700; font-size: 13px; background: #fff; color: var(--forge);
+    border: 2px solid var(--forge); padding: 12px 18px; border-radius: 2px; cursor: pointer; letter-spacing: 0.5px;
+  }
+  .enhance-btn:hover{ background: var(--forge-bg); }
+  .enhance-btn:disabled{ border-color: #B9B4AA; color: #B9B4AA; cursor: default; background: none; }
+  .enhance-block{ display:none; margin-top: 32px; border-top: 2px dashed var(--paper-line); padding-top: 28px; }
+  .enhance-block.active{ display:block; }
+  .enhance-item{ margin-bottom: 18px; }
+  .enhance-item h4{ font-family: var(--mono); font-size: 12px; color: var(--forge); margin: 0 0 6px; }
+  .enhance-item ul{ margin: 0; padding-left: 20px; }
+  .enhance-item li{ margin-bottom: 5px; font-size: 14px; }
+
+  .export-bar{
+    display:flex; gap: 10px; flex-wrap: wrap; margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--paper-line);
+  }
+  .export-bar button{
+    font-family: var(--mono); font-size: 12px; background: #fff; border: 1px solid var(--ink);
+    color: var(--ink); padding: 10px 16px; border-radius: 2px; cursor: pointer;
+  }
+  .export-bar button:hover{ background: var(--ink); color: var(--paper); }
+
+  footer{ margin-top: 60px; font-family: var(--mono); font-size: 11px; color: var(--ink-soft); text-align: center; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="letterhead">
+    <div>
+      <h1>STORY ROOM</h1>
+      <div class="tag">Script coverage &amp; plot forge, working side by side</div>
+    </div>
+    <div class="date" id="today"></div>
+  </div>
+
+  <div class="key-panel" id="keyPanel">
+    <div class="key-panel-head" id="keyPanelHead">
+      <span class="label" id="keyPanelLabel">API ACCESS — click for details</span>
+      <span class="caret">▸</span>
+    </div>
+    <div class="key-panel-body">
+      <p>This app calls Claude's API directly. Inside Claude.ai that's handled automatically — but once this file is downloaded and opened on its own, it needs your own Anthropic API key to run. Get one at <span style="font-family:var(--mono)">console.anthropic.com</span>. The key is kept only in this browser tab — it's never saved to disk and disappears when you close or reload the page.</p>
+      <div class="key-row">
+        <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+        <button type="button" id="saveKeyBtn">Save for this session</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-tabs" id="appTabs">
+    <button type="button" class="active tab-coverage" data-view="coverage">SCRIPT COVERAGE</button>
+    <button type="button" class="tab-forge" data-view="forge">PLOT FORGE</button>
+  </div>
+
+  <div class="session-bar">
+    <button type="button" id="saveSessionBtn">Save session</button>
+    <button type="button" id="loadSessionBtn">Load session</button>
+    <input type="file" id="sessionFileInput" accept=".json" style="display:none">
+    <span class="hint" id="sessionHint">Everything here lives only in this tab — save a session file before closing if you want to pick this back up later.</span>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SCRIPT COVERAGE VIEW                                          -->
+  <!-- ============================================================ -->
+  <div class="view active" id="coverageView">
+
+    <div class="intake">
+      <div class="field">
+        <label for="covScriptInput">SCRIPT TEXT</label>
+        <textarea id="covScriptInput" placeholder="Paste your script here — INT./EXT. sluglines are used to split it into scenes.
+
+EXAMPLE:
+
+INT. DINER - NIGHT
+
+MARA sits alone in a corner booth, coffee gone cold..."></textarea>
+        <div class="filerow">
+          <button type="button" id="covUploadBtn">Upload script file</button>
+          <input type="file" id="covFileInput" accept=".txt,.fdx,.pdf,.doc,.docx" style="display:none">
+          <span id="covFileName"></span>
+        </div>
+        <div class="hint">Accepts .fdx, .pdf, .docx, or .txt — or paste directly above.</div>
+      </div>
+
+      <div class="side-field">
+        <div class="field" style="margin-bottom:16px;">
+          <label for="covGenreSelect">GENRE</label>
+          <select id="covGenreSelect">
+            <option value="unspecified">Not specified</option>
+            <option value="drama">Drama</option>
+            <option value="comedy">Comedy</option>
+            <option value="horror">Horror</option>
+            <option value="thriller">Thriller / Suspense</option>
+            <option value="action">Action</option>
+            <option value="sci-fi">Sci-Fi</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="romance">Romance</option>
+            <option value="crime">Crime / Mystery</option>
+            <option value="animation">Animation</option>
+            <option value="documentary">Documentary</option>
+            <option value="sitcom">Sitcom (half-hour)</option>
+            <option value="prestige-tv">Prestige TV drama</option>
+          </select>
+        </div>
+        <button class="analyze-btn" id="covAnalyzeBtn">Run coverage</button>
+        <div class="hint">Genre calibrates tone — a comedy beat and a thriller beat aren't judged the same way.</div>
+        <label class="checkbox-label"><input type="checkbox" id="covWorldCinemaToggle" checked> Draw on world cinema (Korean, Chinese, Japanese, anime) for tone &amp; comic relief when rewriting</label>
+      </div>
+    </div>
+
+    <div class="status" id="covStatus">
+      <span id="covStatusText">Reading scenes…</span>
+      <div class="bar"><i id="covStatusBar"></i></div>
+    </div>
+
+    <div class="error" id="covError"></div>
+
+    <div class="results" id="covResults">
+
+      <div class="verdict-row">
+        <div class="score-big">
+          <div class="num" id="covScorePercent">0<span>%</span></div>
+          <div class="label">TO INDUSTRY STANDARD</div>
+        </div>
+        <div class="stamp" id="covStamp">RECOMMEND</div>
+        <div class="verdict-meta" id="covVerdictMeta"></div>
+      </div>
+
+      <div class="chart-wrap">
+        <div class="section-title">SCENE-BY-SCENE STRENGTH</div>
+        <svg id="covChart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
+        <div class="chart-legend">
+          <span><i style="background:var(--recommend)"></i>70–100 · working</span>
+          <span><i style="background:var(--consider)"></i>40–69 · needs work</span>
+          <span><i style="background:var(--pass)"></i>0–39 · cut or rebuild</span>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <span>SCENE NOTES</span>
+        <button class="rewrite-all-btn" id="covRewriteAllBtn">Rewrite all flagged scenes</button>
+      </div>
+      <div id="covSceneList"></div>
+
+      <button type="button" class="bridge-btn" id="sendToForgeBtn">Send this script to Plot Forge →</button>
+
+      <div class="export-bar">
+        <button type="button" id="covCopyBtn">Copy to clipboard</button>
+        <button type="button" id="covTxtBtn">Export .txt</button>
+        <button type="button" id="covPdfBtn">Export PDF</button>
+        <button type="button" id="covDocxBtn">Export .docx</button>
+      </div>
+
+    </div>
+
+    <footer>Analysis and rewrites are generated and may miss context only you have — use them as a second pass, not a final draft.</footer>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- PLOT FORGE VIEW                                               -->
+  <!-- ============================================================ -->
+  <div class="view" id="forgeView">
+
+    <div class="format-toggle" id="pfFormatToggle">
+      <button type="button" class="active" data-format="tv">TV SERIES</button>
+      <button type="button" data-format="movie">FEATURE FILM</button>
+    </div>
+
+    <div class="intake">
+      <div class="field">
+        <label for="pfPilotInput">PILOT / SCRIPT TEXT</label>
+        <textarea id="pfPilotInput" placeholder="Paste your pilot script here, or upload a file below.
+
+EXAMPLE:
+
+INT. DINER - NIGHT
+
+MARA sits alone in a corner booth, coffee gone cold..."></textarea>
+        <div class="filerow">
+          <button type="button" id="pfUploadBtn">Upload script file</button>
+          <input type="file" id="pfFileInput" accept=".txt,.fdx,.pdf,.doc,.docx" style="display:none">
+          <span id="pfFileName"></span>
+        </div>
+        <div class="hint">Accepts .fdx, .pdf, .docx, or .txt — or paste directly above.</div>
+      </div>
+
+      <div class="side-field">
+        <div class="field" style="margin-bottom:16px;">
+          <label for="pfGenreSelect">GENRE</label>
+          <select id="pfGenreSelect">
+            <option value="unspecified">Not specified</option>
+            <option value="drama">Drama</option>
+            <option value="comedy">Comedy</option>
+            <option value="horror">Horror</option>
+            <option value="thriller">Thriller / Suspense</option>
+            <option value="action">Action</option>
+            <option value="sci-fi">Sci-Fi</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="romance">Romance</option>
+            <option value="crime">Crime / Mystery</option>
+            <option value="animation">Animation</option>
+            <option value="sitcom">Sitcom (half-hour)</option>
+            <option value="prestige-tv">Prestige TV drama</option>
+          </select>
+        </div>
+        <button class="forge-btn" id="pfForgeBtn">Forge the plot</button>
+        <label class="checkbox-label"><input type="checkbox" id="pfCompsToggle" checked> Research real comparable titles (web search)</label>
+      </div>
+    </div>
+
+    <div class="status" id="pfStatus">
+      <span id="pfStatusText">Reading the pilot…</span>
+      <div class="bar"><i id="pfStatusBar"></i></div>
+    </div>
+
+    <div class="error" id="pfError"></div>
+
+    <div class="results" id="pfResults">
+
+      <p class="edit-hint">Click any text below to edit it before writing scripts — edits are saved as you click away.</p>
+
+      <div class="logline-block">
+        <span class="kicker">LOGLINE</span>
+        <span id="pfOutLogline" contenteditable="true" spellcheck="false" data-field="logline"></span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">WORLD &amp; PREMISE</div>
+        <p id="pfOutPremise" contenteditable="true" spellcheck="false" data-field="premise"></p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">CHARACTERS</div>
+        <div id="pfOutCharacters"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">CENTRAL CONFLICT &amp; THEME</div>
+        <p id="pfOutConflict" contenteditable="true" spellcheck="false" data-field="conflict"></p>
+      </div>
+
+      <div class="section" id="pfTvArcSection">
+        <div class="section-title">
+          <span>SEASON ONE ARC</span>
+          <button type="button" class="write-all-btn" id="pfWriteAllEpisodesBtn">Write all episode scripts</button>
+        </div>
+        <div id="pfOutSeasonArc"></div>
+        <p id="pfOutSeasonTwo" style="margin-top:14px; font-style:italic; color:var(--ink-soft);"></p>
+      </div>
+
+      <div class="section" id="pfMovieBeatSection">
+        <div class="section-title">
+          <span>THREE-ACT BEAT SHEET</span>
+          <button type="button" class="write-all-btn" id="pfWriteFullScreenplayBtn">Write full screenplay</button>
+        </div>
+        <div id="pfOutBeatSheet"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">COMPARABLE TITLES</div>
+        <div class="comps-row" id="pfOutComps"></div>
+      </div>
+
+      <button class="enhance-btn" id="pfEnhanceBtn">Enhance this plot →</button>
+
+      <div class="enhance-block" id="pfEnhanceBlock">
+        <div class="section-title">ENHANCEMENT PASS</div>
+        <div class="enhance-item">
+          <h4>STRONGER INCITING INCIDENT</h4>
+          <p id="pfOutIncident"></p>
+        </div>
+        <div class="enhance-item">
+          <h4>RAISED STAKES</h4>
+          <p id="pfOutStakes"></p>
+        </div>
+        <div class="enhance-item">
+          <h4>TWIST / REVERSAL IDEAS</h4>
+          <ul id="pfOutTwists"></ul>
+        </div>
+        <div class="enhance-item">
+          <h4>SUBPLOT SUGGESTIONS</h4>
+          <ul id="pfOutSubplots"></ul>
+        </div>
+      </div>
+
+      <div class="export-bar">
+        <button type="button" id="pfCopyBtn">Copy to clipboard</button>
+        <button type="button" id="pfTxtBtn">Export .txt</button>
+        <button type="button" id="pfPdfBtn">Export PDF</button>
+        <button type="button" id="pfDocxBtn">Export .docx</button>
+      </div>
+
+    </div>
+
+    <footer>Generated plot material is a starting point, not a finished product — read it critically and make it yours.</footer>
+
+  </div>
+
+</div>
+
+<script>
+document.getElementById('today').textContent = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+
+/* ============================================================
+   SHARED: tabs, API key panel, network/parsing utilities
+   ============================================================ */
+const appTabs = document.getElementById('appTabs');
+const coverageView = document.getElementById('coverageView');
+const forgeView = document.getElementById('forgeView');
+
+function switchTab(view){
+  appTabs.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.getAttribute('data-view') === view));
+  coverageView.classList.toggle('active', view === 'coverage');
+  forgeView.classList.toggle('active', view === 'forge');
+}
+appTabs.querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.getAttribute('data-view')));
+});
+
+let sessionApiKey = ''; // kept in memory only — never written to disk
+
+const keyPanel = document.getElementById('keyPanel');
+const keyPanelHead = document.getElementById('keyPanelHead');
+const keyPanelLabel = document.getElementById('keyPanelLabel');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const saveKeyBtn = document.getElementById('saveKeyBtn');
+
+keyPanelHead.addEventListener('click', () => keyPanel.classList.toggle('open'));
+saveKeyBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const val = apiKeyInput.value.trim();
+  if(!val) return;
+  sessionApiKey = val;
+  keyPanel.classList.add('connected');
+  keyPanel.classList.remove('open');
+  keyPanelLabel.textContent = 'API KEY CONNECTED (this tab only)';
+});
+
+// Detect whether direct calls to the Anthropic API work without a key —
+// true inside Claude.ai's artifact preview, false once this file is
+// downloaded and opened standalone. If the probe fails, open the key panel.
+(async function probeApiAccess(){
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1, messages: [{ role: "user", content: "hi" }] })
+    });
+    if(!res.ok && res.status !== 200){
+      keyPanel.classList.add('open');
+      keyPanelLabel.textContent = 'API KEY REQUIRED — this file is running standalone';
+    }
+  } catch(e){
+    keyPanel.classList.add('open');
+    keyPanelLabel.textContent = 'API KEY REQUIRED — this file is running standalone';
+  }
+})();
+
+function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+async function callClaude(prompt, options){
+  options = options || {};
+  const body = { model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] };
+  if(options.webSearch){ body.tools = [{ type: "web_search_20250305", name: "web_search" }]; }
+  const headers = { "Content-Type": "application/json" };
+  if(sessionApiKey){
+    headers["x-api-key"] = sessionApiKey;
+    headers["anthropic-version"] = "2023-06-01";
+    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  }
+
+  const maxAttempts = 5;
+  const transientStatuses = new Set([429, 500, 502, 503, 529]);
+  let lastErr;
+
+  for(let attempt = 1; attempt <= maxAttempts; attempt++){
+    let response;
+    try{
+      response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) });
+    } catch(networkErr){
+      lastErr = new Error("Network error reaching the API: " + networkErr.message);
+      if(attempt < maxAttempts){ await sleep(1000 * Math.pow(2, attempt - 1)); continue; }
+      throw lastErr;
+    }
+
+    if(response.ok){
+      const data = await response.json();
+      return data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    }
+
+    if(response.status === 401 && !sessionApiKey){
+      keyPanel.classList.add('open');
+      throw new Error("No API key connected — add one above and try again.");
+    }
+
+    if(transientStatuses.has(response.status) && attempt < maxAttempts){
+      const retryAfter = response.headers.get('retry-after');
+      const waitMs = retryAfter ? parseFloat(retryAfter) * 1000 : 1500 * Math.pow(2, attempt - 1);
+      await sleep(Math.min(waitMs, 20000));
+      continue;
+    }
+
+    const statusMsg = response.status === 429
+      ? "Rate limited (429) — too many requests too quickly. Try again in a moment, or run things one at a time."
+      : "Request failed (" + response.status + ")";
+    throw new Error(statusMsg);
+  }
+  throw lastErr || new Error("Request failed after retrying.");
+}
+
+function parseJsonArrayLoose(text){
+  let clean = text.trim();
+  clean = clean.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const start = clean.indexOf('[');
+  const end = clean.lastIndexOf(']');
+  if(start !== -1 && end !== -1) clean = clean.slice(start, end+1);
+  return JSON.parse(clean);
+}
+
+function parseJsonObjectLoose(text){
+  let clean = text.trim();
+  clean = clean.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if(start !== -1 && end !== -1) clean = clean.slice(start, end+1);
+  try{
+    return JSON.parse(clean);
+  } catch(e){
+    const repaired = clean
+      .replace(/,(\s*[\]}])/g, '$1')
+      .replace(/[\u0000-\u0009\u000B\u000C\u000E-\u001F]/g, '');
+    return JSON.parse(repaired);
+  }
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function extractFdxText(xmlString){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'text/xml');
+  if(doc.getElementsByTagName('parsererror').length){ throw new Error('malformed FDX file'); }
+  const paragraphs = doc.getElementsByTagName('Paragraph');
+  const lines = [];
+  for(const para of paragraphs){
+    const type = para.getAttribute('Type') || '';
+    const textEls = para.getElementsByTagName('Text');
+    let text = '';
+    for(const t of textEls) text += t.textContent;
+    text = text.trim();
+    if(!text) continue;
+    if(type === 'Scene Heading' || type === 'Character'){
+      lines.push('\n' + text.toUpperCase());
+    } else if(type === 'Parenthetical'){
+      lines.push('(' + text.replace(/[()]/g, '') + ')');
+    } else {
+      lines.push(text);
+    }
+  }
+  return lines.join('\n');
+}
+
+async function extractPdfText(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for(let p = 1; p <= pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    let lastY = null, line = '';
+    for(const item of content.items){
+      const y = item.transform[5];
+      if(lastY !== null && Math.abs(y - lastY) > 2){ fullText += line.trim() + '\n'; line = ''; }
+      line += item.str + ' ';
+      lastY = y;
+    }
+    fullText += line.trim() + '\n\n';
+  }
+  return fullText;
+}
+
+// Shared upload handler used by both tools — takes the file input, the
+// target textarea, and the filename label, so the parsing logic (fdx/pdf/
+// docx/txt) only has to exist once. The optional onParsed(text) callback
+// fires once the file's text has been successfully extracted, which is
+// what lets an upload in either tab kick off both tools at once.
+function wireFileUpload(uploadBtnEl, fileInputEl, targetTextareaEl, fileNameEl, onParsed){
+  uploadBtnEl.addEventListener('click', () => fileInputEl.click());
+  fileInputEl.addEventListener('change', () => {
+    const f = fileInputEl.files[0];
+    if(!f) return;
+    const ext = f.name.split('.').pop().toLowerCase();
+
+    if(ext === 'txt'){
+      fileNameEl.textContent = f.name;
+      const reader = new FileReader();
+      reader.onload = e => {
+        targetTextareaEl.value = e.target.result;
+        onParsed && onParsed(e.target.result);
+      };
+      reader.readAsText(f);
+
+    } else if(ext === 'fdx'){
+      fileNameEl.textContent = f.name;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try{
+          const text = extractFdxText(e.target.result);
+          targetTextareaEl.value = text;
+          onParsed && onParsed(text);
+        }
+        catch(err){ fileNameEl.textContent = f.name + ' — could not read this .fdx file'; }
+      };
+      reader.readAsText(f);
+
+    } else if(ext === 'docx'){
+      fileNameEl.textContent = f.name + ' — reading…';
+      const reader = new FileReader();
+      reader.onload = async e => {
+        try{
+          const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
+          targetTextareaEl.value = result.value;
+          fileNameEl.textContent = f.name;
+          onParsed && onParsed(result.value);
+        } catch(err){ fileNameEl.textContent = f.name + ' — could not read this .docx file'; }
+      };
+      reader.readAsArrayBuffer(f);
+
+    } else if(ext === 'doc'){
+      fileNameEl.textContent = f.name + ' — legacy .doc isn\'t supported; save as .docx and re-upload, or paste the text above.';
+
+    } else if(ext === 'pdf'){
+      fileNameEl.textContent = f.name + ' — reading…';
+      const reader = new FileReader();
+      reader.onload = async e => {
+        try{
+          const text = await extractPdfText(e.target.result);
+          targetTextareaEl.value = text;
+          fileNameEl.textContent = f.name;
+          onParsed && onParsed(text);
+        } catch(err){ fileNameEl.textContent = f.name + ' — could not read this PDF'; }
+      };
+      reader.readAsArrayBuffer(f);
+
+    } else {
+      fileNameEl.textContent = f.name + ' — unsupported file type';
+    }
+  });
+}
+
+/* ============================================================
+   SCRIPT COVERAGE
+   ============================================================ */
+const covScriptInput = document.getElementById('covScriptInput');
+const covUploadBtn = document.getElementById('covUploadBtn');
+const covFileInput = document.getElementById('covFileInput');
+const covFileName = document.getElementById('covFileName');
+const covAnalyzeBtn = document.getElementById('covAnalyzeBtn');
+const covStatusEl = document.getElementById('covStatus');
+const covStatusText = document.getElementById('covStatusText');
+const covStatusBar = document.getElementById('covStatusBar');
+const covErrorEl = document.getElementById('covError');
+const covResultsEl = document.getElementById('covResults');
+const covSceneListEl = document.getElementById('covSceneList');
+const covChartEl = document.getElementById('covChart');
+const covStampEl = document.getElementById('covStamp');
+const covVerdictMetaEl = document.getElementById('covVerdictMeta');
+const covScorePercentEl = document.getElementById('covScorePercent');
+const covRewriteAllBtn = document.getElementById('covRewriteAllBtn');
+const sendToForgeBtn = document.getElementById('sendToForgeBtn');
+
+let covGenre = 'unspecified';
+let covResults = []; // { number, slugline, text, score, strengths, issues, rewrite }
+
+wireFileUpload(covUploadBtn, covFileInput, covScriptInput, covFileName, (text) => afterUploadParsed('coverage', text));
+
+function splitIntoScenes(text){
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const sluglineRe = /^\s*(\d+[A-Z]?\.?\s+)?(INT|EXT|INT\/EXT|I\/E)[.\s\-\/]/i;
+  const scenes = [];
+  let current = null;
+  for(const line of lines){
+    if(sluglineRe.test(line)){
+      if(current) scenes.push(current);
+      current = { slugline: line.trim().replace(/\s+/g,' '), lines: [line] };
+    } else if(current){
+      current.lines.push(line);
+    }
+  }
+  if(current) scenes.push(current);
+  return scenes.map((s, i) => ({
+    number: i+1,
+    slugline: s.slugline || `SCENE ${i+1}`,
+    text: s.lines.join('\n').trim()
+  }));
+}
+
+function verdictFromScore(score){
+  if(score >= 70) return 'recommend';
+  if(score >= 40) return 'consider';
+  return 'pass';
+}
+
+async function analyzeScenes(scenes, genre){
+  const batchSize = 4;
+  const results = [];
+  for(let i=0; i<scenes.length; i+=batchSize){
+    const batch = scenes.slice(i, i+batchSize);
+    covStatusText.textContent = `Reading scenes ${batch[0].number}–${batch[batch.length-1].number} of ${scenes.length}…`;
+    covStatusBar.style.width = Math.round((i / scenes.length) * 100) + '%';
+
+    const scenesBlock = batch.map(s => `SCENE ${s.number}:\n${s.text}`).join('\n\n---\n\n');
+
+    const prompt = `You are a professional script reader producing coverage notes for a ${genre === 'unspecified' ? 'script of unspecified genre' : genre + ' script'}. Evaluate EACH scene below on craft fundamentals: conflict/stakes, pacing, dialogue quality, character purpose, structural function (setup/payoff), and whether it earns its place versus being redundant. Calibrate expectations to the stated genre.
+
+For each scene return a JSON object with:
+- "number": the scene number (integer, matches the input)
+- "score": integer 0-100 for overall craft strength
+- "strengths": array of 0-3 short strings (max ~12 words each)
+- "issues": array of 0-4 objects: {"type": "improve" or "cut", "note": short specific actionable note, max ~16 words}
+
+Respond with ONLY a JSON array of these objects, no preamble, no markdown fences.
+
+${scenesBlock}`;
+
+    const raw = await callClaude(prompt);
+    try{
+      const parsed = parseJsonArrayLoose(raw);
+      for(const p of parsed){
+        const src = batch.find(b => b.number === p.number) || batch[0];
+        results.push({
+          number: p.number ?? src.number,
+          slugline: src.slugline,
+          text: src.text,
+          score: Math.max(0, Math.min(100, Math.round(p.score ?? 50))),
+          strengths: Array.isArray(p.strengths) ? p.strengths : [],
+          issues: Array.isArray(p.issues) ? p.issues : [],
+          rewrite: null
+        });
+      }
+    } catch(e){
+      for(const s of batch){
+        results.push({ number: s.number, slugline: s.slugline, text: s.text, score: 50, strengths: [], issues: [{type:'improve', note:'Could not parse analysis for this scene — try re-running.'}], rewrite: null });
+      }
+    }
+  }
+  covStatusBar.style.width = '100%';
+  return results.sort((a,b) => a.number - b.number);
+}
+
+async function rewriteScene(sceneResult, genre, useWorldCinema){
+  const issuesText = sceneResult.issues.length
+    ? sceneResult.issues.map(i => `- (${i.type === 'cut' ? 'cut/rework' : 'fix'}) ${i.note}`).join('\n')
+    : '- No specific issues flagged; tighten and polish to a professional standard.';
+
+  const worldCinemaBlock = useWorldCinema ? `
+
+Before rewriting, briefly research how Korean, Chinese, Japanese, and anime storytelling handle tonal shifts and comic relief in scenes like this one (e.g. Korean cinema's tonal whiplash between drama and comedy, Japanese "ma" — comedic pause and timing, anime reaction-humor beats, wuxia/Chinese cinema's blend of levity and stakes). Use what you find only as a reference point for technique, rhythm, and tone — never copy specific dialogue, characters, jokes, or scenes from any real film or show. Every line you write must be wholly original to this scene.` : '';
+
+  const prompt = `You are a professional script doctor. Rewrite the scene below to industry standard for a ${genre === 'unspecified' ? 'screenplay' : genre + ' screenplay'}, addressing these coverage notes:
+
+${issuesText}
+${worldCinemaBlock}
+
+Rules:
+- Preserve the scene's core story purpose, characters, and setting unless a note explicitly says to cut material.
+- Fix pacing, dialogue, and formatting issues (proper slugline, action lines in present tense, correct character cue formatting).
+- Keep it tight — professional scripts don't pad.
+- Output ONLY the rewritten scene in standard screenplay format. No preamble, no notes, no markdown fences, no citations, no source references, no commentary before or after — just the scene text.
+
+ORIGINAL SCENE:
+${sceneResult.text}`;
+
+  const raw = await callClaude(prompt, { webSearch: useWorldCinema });
+  return raw.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
+}
+
+function renderChart(results){
+  const w = 800, h = 220, padL = 30, padR = 10, padT = 14, padB = 24;
+  const n = results.length;
+  const xStep = n > 1 ? (w - padL - padR) / (n - 1) : 0;
+  const yFor = score => padT + (100 - score) / 100 * (h - padT - padB);
+  const xFor = i => padL + i * xStep;
+
+  let path = '';
+  results.forEach((r, i) => {
+    const x = xFor(i), y = yFor(r.score);
+    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  });
+
+  const areaPath = path + `L${xFor(n-1).toFixed(1)},${(h-padB).toFixed(1)} L${xFor(0).toFixed(1)},${(h-padB).toFixed(1)} Z`;
+
+  const gridLines = [0, 40, 70, 100].map(v => {
+    const y = yFor(v);
+    return `<line x1="${padL}" y1="${y}" x2="${w-padR}" y2="${y}" stroke="var(--paper-line)" stroke-width="1"/>`;
+  }).join('');
+
+  const dots = results.map((r, i) => {
+    const x = xFor(i), y = yFor(r.score);
+    const color = r.score >= 70 ? 'var(--recommend)' : r.score >= 40 ? 'var(--consider)' : 'var(--pass)';
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${color}"><title>Scene ${r.number}: ${r.score}</title></circle>`;
+  }).join('');
+
+  covChartEl.innerHTML = `
+    ${gridLines}
+    <path d="${areaPath}" fill="var(--pencil-blue)" opacity="0.06"/>
+    <path d="${path.trim()}" fill="none" stroke="var(--pencil-blue)" stroke-width="2"/>
+    ${dots}
+  `;
+}
+
+function sceneCardHtml(r){
+  const v = verdictFromScore(r.score);
+  const strengths = r.strengths.length ? `
+    <div class="note-block">
+      <h4>WHAT'S WORKING</h4>
+      <ul>${r.strengths.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>
+    </div>` : '';
+  const hasIssues = r.issues.length > 0;
+  const issues = hasIssues ? `
+    <div class="note-block">
+      <h4>NOTES</h4>
+      <ul>${r.issues.map(iss => `<li class="${iss.type === 'cut' ? 'cut' : 'improve'}"><span class="tagword ${iss.type === 'cut' ? 'cut' : 'improve'}">${iss.type === 'cut' ? 'CUT' : 'FIX'}</span>${escapeHtml(iss.note)}</li>`).join('')}</ul>
+    </div>` : `<div class="note-block"><h4>NOTES</h4><ul><li>No notable issues flagged.</li></ul></div>`;
+
+  const rewriteSection = r.rewrite
+    ? `<div class="rewrite-panel">
+        <div class="rewrite-panel-head">
+          <span>REWRITE — TO INDUSTRY STANDARD</span>
+          <button class="copy-btn" data-copy="${r.number}">Copy</button>
+        </div>
+        <pre class="rewrite-text">${escapeHtml(r.rewrite)}</pre>
+       </div>`
+    : `<div class="rewrite-action">
+        <button class="rewrite-btn" data-rewrite="${r.number}">Rewrite this scene to industry standard</button>
+       </div>`;
+
+  return `
+    <div class="scene ${v}" data-scene="${r.number}">
+      <div class="tab"></div>
+      <div>
+        <div class="scene-head">
+          <div class="scene-slug"><span class="caret">▸</span>SCENE ${r.number} — ${escapeHtml(r.slugline)}</div>
+          <div class="scene-score">${r.score}/100</div>
+        </div>
+        <div class="scene-body">
+          ${strengths}${issues}
+          <div class="rewrite-slot">${rewriteSection}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderScenes(results){
+  covSceneListEl.innerHTML = results.map(sceneCardHtml).join('');
+}
+
+covSceneListEl.addEventListener('click', async (e) => {
+  const rewriteBtn = e.target.closest('[data-rewrite]');
+  if(rewriteBtn){
+    e.stopPropagation();
+    const num = parseInt(rewriteBtn.getAttribute('data-rewrite'), 10);
+    await runRewrite(num);
+    return;
+  }
+  const copyBtn = e.target.closest('[data-copy]');
+  if(copyBtn){
+    e.stopPropagation();
+    const num = parseInt(copyBtn.getAttribute('data-copy'), 10);
+    const r = covResults.find(x => x.number === num);
+    if(r && r.rewrite){
+      navigator.clipboard.writeText(r.rewrite).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      });
+    }
+    return;
+  }
+  const head = e.target.closest('.scene-head');
+  if(head){
+    head.closest('.scene').classList.toggle('open');
+  }
+});
+
+async function runRewrite(num){
+  const r = covResults.find(x => x.number === num);
+  if(!r || r.rewrite) return;
+  const cardEl = covSceneListEl.querySelector(`.scene[data-scene="${num}"]`);
+  const slot = cardEl.querySelector('.rewrite-slot');
+  const useWorldCinema = document.getElementById('covWorldCinemaToggle').checked;
+  slot.innerHTML = `<div class="rewrite-loading">${useWorldCinema ? 'Researching tone & comic-relief references, then rewriting' : 'Rewriting'} scene ${num}…</div>`;
+  try{
+    const rewritten = await rewriteScene(r, covGenre, useWorldCinema);
+    r.rewrite = rewritten;
+  } catch(err){
+    slot.innerHTML = `<div class="rewrite-loading">Rewrite failed: ${escapeHtml(err.message)}. <button class="rewrite-btn" data-rewrite="${num}">Try again</button></div>`;
+    return;
+  }
+  slot.innerHTML = sceneCardBodyRewriteOnly(r);
+}
+
+function sceneCardBodyRewriteOnly(r){
+  return `<div class="rewrite-panel">
+      <div class="rewrite-panel-head">
+        <span>REWRITE — TO INDUSTRY STANDARD</span>
+        <button class="copy-btn" data-copy="${r.number}">Copy</button>
+      </div>
+      <pre class="rewrite-text">${escapeHtml(r.rewrite)}</pre>
+     </div>`;
+}
+
+function renderVerdict(results){
+  const avg = Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length);
+  const v = verdictFromScore(avg);
+  covScorePercentEl.innerHTML = `${avg}<span>%</span>`;
+  covStampEl.className = 'stamp ' + v;
+  covStampEl.textContent = v === 'recommend' ? 'RECOMMEND' : v === 'consider' ? 'CONSIDER' : 'PASS';
+
+  const cutCount = results.reduce((sum, r) => sum + r.issues.filter(i => i.type === 'cut').length, 0);
+  const weakest = [...results].sort((a,b) => a.score - b.score).slice(0, 3).map(r => r.number);
+
+  covVerdictMetaEl.innerHTML = `<strong>${results.length} scenes read</strong> · average strength <strong>${avg}/100</strong>` +
+    (cutCount ? ` · <strong>${cutCount}</strong> cut flag${cutCount === 1 ? '' : 's'}` : '') +
+    (weakest.length ? ` · weakest: scene${weakest.length > 1 ? 's' : ''} ${weakest.join(', ')}` : '');
+}
+
+/* ---------- Build plain-text coverage report (used by all coverage exports) ---------- */
+function buildCoveragePlainText(){
+  if(!covResults.length) return '';
+  const avg = Math.round(covResults.reduce((sum, r) => sum + r.score, 0) / covResults.length);
+  const v = verdictFromScore(avg);
+  const verdictLabel = v === 'recommend' ? 'RECOMMEND' : v === 'consider' ? 'CONSIDER' : 'PASS';
+
+  let lines = [];
+  lines.push('SCRIPT COVERAGE');
+  lines.push('');
+  lines.push(`OVERALL: ${avg}% to industry standard — ${verdictLabel}`);
+  lines.push(`${covResults.length} scenes read`);
+  lines.push('');
+  lines.push('SCENE NOTES');
+  lines.push('='.repeat(40));
+
+  covResults.forEach(r => {
+    lines.push('');
+    lines.push(`SCENE ${r.number} — ${r.slugline} (${r.score}/100)`);
+    if(r.strengths.length){
+      lines.push('What\'s working:');
+      r.strengths.forEach(s => lines.push('  - ' + s));
+    }
+    if(r.issues.length){
+      lines.push('Notes:');
+      r.issues.forEach(i => lines.push(`  - [${i.type === 'cut' ? 'CUT' : 'FIX'}] ${i.note}`));
+    } else {
+      lines.push('Notes: none flagged.');
+    }
+    if(r.rewrite){
+      lines.push('');
+      lines.push('REWRITE — TO INDUSTRY STANDARD:');
+      lines.push(r.rewrite);
+    }
+  });
+
+  return lines.join('\n');
+}
+
+document.getElementById('covCopyBtn').addEventListener('click', (e) => {
+  copyTextToClipboard(buildCoveragePlainText(), e.target);
+});
+document.getElementById('covTxtBtn').addEventListener('click', () => {
+  downloadTextFile('script-coverage.txt', buildCoveragePlainText());
+});
+document.getElementById('covPdfBtn').addEventListener('click', () => {
+  const avg = covResults.length ? Math.round(covResults.reduce((sum, r) => sum + r.score, 0) / covResults.length) : 0;
+  const text = buildCoveragePlainText().split('\n').slice(2).join('\n'); // drop the title line the PDF re-adds
+  exportPdf('script-coverage.pdf', 'SCRIPT COVERAGE', `${avg}% to industry standard`, text);
+});
+document.getElementById('covDocxBtn').addEventListener('click', () => {
+  exportDocx('script-coverage.docx', buildCoveragePlainText());
+});
+
+covRewriteAllBtn.addEventListener('click', async () => {
+  const flagged = covResults.filter(r => !r.rewrite && r.issues.length > 0);
+  if(flagged.length === 0) return;
+  covRewriteAllBtn.disabled = true;
+  const originalLabel = covRewriteAllBtn.textContent;
+  for(let i = 0; i < flagged.length; i++){
+    covRewriteAllBtn.textContent = `Rewriting ${i+1}/${flagged.length}…`;
+    await runRewrite(flagged[i].number);
+  }
+  covRewriteAllBtn.textContent = originalLabel;
+  covRewriteAllBtn.disabled = false;
+});
+
+async function runCoverageAnalysis(){
+  covErrorEl.classList.remove('active');
+  covResultsEl.classList.remove('active');
+  const text = covScriptInput.value.trim();
+
+  if(!text){
+    covErrorEl.textContent = 'Paste or upload a script first.';
+    covErrorEl.classList.add('active');
+    return;
+  }
+
+  const scenes = splitIntoScenes(text);
+  if(scenes.length === 0){
+    covErrorEl.textContent = 'No scene headings found. Scenes are detected from lines starting with INT. or EXT.';
+    covErrorEl.classList.add('active');
+    return;
+  }
+
+  covAnalyzeBtn.disabled = true;
+  covStatusEl.classList.add('active');
+  covStatusBar.style.width = '0%';
+
+  try{
+    covGenre = document.getElementById('covGenreSelect').value;
+    covResults = await analyzeScenes(scenes, covGenre);
+    renderChart(covResults);
+    renderScenes(covResults);
+    renderVerdict(covResults);
+    covResultsEl.classList.add('active');
+    if(coverageView.classList.contains('active')){
+      covResultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch(e){
+    covErrorEl.textContent = 'Something went wrong running coverage: ' + e.message;
+    covErrorEl.classList.add('active');
+  } finally {
+    covAnalyzeBtn.disabled = false;
+    covStatusEl.classList.remove('active');
+  }
+}
+covAnalyzeBtn.addEventListener('click', runCoverageAnalysis);
+
+// Bridge: send the current script straight into Plot Forge.
+sendToForgeBtn.addEventListener('click', () => {
+  pfPilotInput.value = covScriptInput.value;
+  pfFileName.textContent = 'Sent from Script Coverage';
+  switchTab('forge');
+});
+
+/* ============================================================
+   PLOT FORGE
+   ============================================================ */
+const pfPilotInput = document.getElementById('pfPilotInput');
+const pfUploadBtn = document.getElementById('pfUploadBtn');
+const pfFileInput = document.getElementById('pfFileInput');
+const pfFileName = document.getElementById('pfFileName');
+const pfForgeBtn = document.getElementById('pfForgeBtn');
+const pfStatusEl = document.getElementById('pfStatus');
+const pfStatusText = document.getElementById('pfStatusText');
+const pfStatusBar = document.getElementById('pfStatusBar');
+const pfErrorEl = document.getElementById('pfError');
+const pfResultsEl = document.getElementById('pfResults');
+const pfFormatToggle = document.getElementById('pfFormatToggle');
+const pfTvArcSection = document.getElementById('pfTvArcSection');
+const pfMovieBeatSection = document.getElementById('pfMovieBeatSection');
+const pfEnhanceBtn = document.getElementById('pfEnhanceBtn');
+const pfEnhanceBlock = document.getElementById('pfEnhanceBlock');
+const pfOutSeasonArc = document.getElementById('pfOutSeasonArc');
+const pfOutBeatSheet = document.getElementById('pfOutBeatSheet');
+const pfWriteAllEpisodesBtn = document.getElementById('pfWriteAllEpisodesBtn');
+const pfWriteFullScreenplayBtn = document.getElementById('pfWriteFullScreenplayBtn');
+
+let pfFormat = 'tv';
+let pfGenre = 'unspecified';
+let pfPlotData = null;
+let pfEnhanceData = null;
+
+wireFileUpload(pfUploadBtn, pfFileInput, pfPilotInput, pfFileName, (text) => afterUploadParsed('forge', text));
+
+pfFormatToggle.querySelectorAll('button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    pfFormatToggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    pfFormat = btn.getAttribute('data-format');
+  });
+});
+
+/* ---------- Forge the plot ---------- */
+async function forgeCore(pilotText, genreLabel){
+  const prompt = `You are a professional development executive. Read the pilot script below (${genreLabel}) and extract its core plot elements — grounded in what's actually on the page, not invented from scratch.
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "logline": one or two sentences, industry pitch standard
+- "premise": one short paragraph on the world and premise as established in the pages
+- "conflict": one short paragraph covering the central conflict and thematic throughline
+
+PILOT:
+${pilotText}`;
+  const raw = await callClaude(prompt);
+  return parseJsonObjectLoose(raw);
+}
+
+async function forgeCharacters(pilotText, genreLabel){
+  const prompt = `You are a professional development executive. Read the pilot script below (${genreLabel}) and identify its key characters.
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "characters": array of up to 5 objects {"name": string, "role": e.g. "Protagonist"/"Antagonist"/"Supporting", "arc": one short sentence on their implied arc}
+
+PILOT:
+${pilotText}`;
+  const raw = await callClaude(prompt);
+  return parseJsonObjectLoose(raw).characters || [];
+}
+
+async function forgeStructure(pilotText, format, genreLabel){
+  const formatInstruction = format === 'tv'
+    ? `Return ONLY a JSON object with:
+- "season_arc": array of up to 8 objects {"episode": integer, "title": short episode title, "beat": one short sentence per episode beat}
+- "season_two_hook": one sentence on where Season 2 could go`
+    : `Return ONLY a JSON object with:
+- "beat_sheet": array of exactly 3 objects {"act": "Act One" | "Act Two" | "Act Three", "beats": array of 4-5 short beat strings}`;
+
+  const prompt = `You are a professional development executive. Read the pilot script below (${genreLabel}) and build a ${format === 'tv' ? 'Season 1 episode arc' : 'three-act beat sheet'} that extends naturally from it.
+
+${formatInstruction}
+No markdown fences, no commentary — JSON only.
+
+PILOT:
+${pilotText}`;
+  const raw = await callClaude(prompt);
+  return parseJsonObjectLoose(raw);
+}
+
+async function forgeComps(pilotText, genreLabel, useComps){
+  const prompt = `You are a professional development executive.${useComps ? ' Research real, produced comparable titles (shows or films) before answering.' : ''} Based on the pilot script below (${genreLabel}), name 3 real comparable titles this could be pitched alongside.
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "comps": array of exactly 3 real comparable title strings
+
+PILOT (excerpt for context):
+${pilotText.slice(0, 4000)}`;
+  const raw = await callClaude(prompt, { webSearch: useComps });
+  return parseJsonObjectLoose(raw).comps || [];
+}
+
+async function forgePlot(pilotText, format, genre, useComps, onProgress){
+  const genreLabel = genre === 'unspecified' ? 'unspecified genre' : genre;
+  onProgress && onProgress('Reading the pilot — logline, premise, and conflict…', 15);
+  const core = await forgeCore(pilotText, genreLabel);
+
+  onProgress && onProgress('Mapping the characters…', 40);
+  const characters = await forgeCharacters(pilotText, genreLabel);
+
+  onProgress && onProgress(format === 'tv' ? 'Building the Season 1 arc…' : 'Building the three-act beat sheet…', 65);
+  const structure = await forgeStructure(pilotText, format, genreLabel);
+
+  onProgress && onProgress('Finding comparable titles…', 90);
+  const comps = await forgeComps(pilotText, genreLabel, useComps);
+
+  return Object.assign({}, core, { characters, comps }, structure);
+}
+
+async function enhancePlot(plot, format, genre){
+  const prompt = `You are a script doctor. Given this forged plot package for a ${genre === 'unspecified' ? '' : genre + ' '}${format === 'tv' ? 'TV series' : 'feature film'}, propose concrete ways to enhance it further. Push it further than what's already there — don't just restate it.
+
+PLOT PACKAGE:
+${JSON.stringify(plot)}
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "inciting_incident": one or two sentences proposing a stronger/sharper inciting incident
+- "stakes": one or two sentences on how to raise the stakes
+- "twists": array of up to 3 short twist/reversal ideas
+- "subplots": array of up to 3 short subplot suggestions`;
+
+  const raw = await callClaude(prompt);
+  return parseJsonObjectLoose(raw);
+}
+
+/* ---------- Write episode/act scripts ---------- */
+function plotContextBlock(plot, genreLabel){
+  const chars = (plot.characters || []).map(c => `${c.name} (${c.role}): ${c.arc}`).join('; ');
+  return `GENRE: ${genreLabel}
+LOGLINE: ${plot.logline || ''}
+PREMISE: ${plot.premise || ''}
+CENTRAL CONFLICT: ${plot.conflict || ''}
+CHARACTERS: ${chars}`;
+}
+
+async function breakdownScenes(contextLabel, beatsText, plot, genreLabel){
+  const prompt = `You are a professional screenwriter breaking a story beat down into a short scene list before drafting it.
+
+${plotContextBlock(plot, genreLabel)}
+
+SEGMENT: ${contextLabel}
+BEATS TO COVER: ${beatsText}
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "scenes": array of up to 7 objects {"slugline": "INT./EXT. LOCATION - DAY/NIGHT", "description": one short sentence on what happens and who's in it}
+
+Keep the scene count realistic for the beats given — don't pad.`;
+  const raw = await callClaude(prompt);
+  return (parseJsonObjectLoose(raw).scenes || []);
+}
+
+async function writeSceneScript(scene, contextLabel, plot, genreLabel, priorSummary){
+  const prompt = `You are a professional screenwriter drafting one scene of a larger script, in proper industry screenplay format (slugline, action lines in present tense, character cues in caps, dialogue).
+
+${plotContextBlock(plot, genreLabel)}
+
+SEGMENT: ${contextLabel}
+${priorSummary ? 'WHAT JUST HAPPENED (for continuity): ' + priorSummary : 'This is the first scene of the segment.'}
+
+WRITE THIS SCENE:
+Slugline: ${scene.slugline}
+What happens: ${scene.description}
+
+Output ONLY the scene in standard screenplay format — no preamble, no notes, no markdown fences, no commentary before or after.`;
+  const raw = await callClaude(prompt);
+  return raw.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
+}
+
+async function raiseSceneStakes(sceneText, contextLabel, plot, genreLabel){
+  const prompt = `You are a script doctor. Rewrite the scene below to raise the stakes — sharpen what the character(s) stand to lose or gain, add urgency, tighten the pressure on the central conflict. Keep the scene's location, characters, and basic shape intact; you're intensifying it, not replacing it.
+
+${plotContextBlock(plot, genreLabel)}
+
+SEGMENT: ${contextLabel}
+
+SCENE TO INTENSIFY:
+${sceneText}
+
+Output ONLY the rewritten scene in standard screenplay format — no preamble, no notes, no markdown fences, no commentary before or after.`;
+  const raw = await callClaude(prompt);
+  return raw.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
+}
+
+async function writeFullScript(contextLabel, beatsText, plot, genreLabel, onProgress){
+  onProgress && onProgress(`Breaking down ${contextLabel}…`);
+  const breakdown = await breakdownScenes(contextLabel, beatsText, plot, genreLabel);
+  if(breakdown.length === 0){
+    throw new Error('Could not break this segment into scenes — try again.');
+  }
+  const scenes = [];
+  let fullText = '';
+  let priorSummary = '';
+  for(let i = 0; i < breakdown.length; i++){
+    onProgress && onProgress(`Writing scene ${i+1} of ${breakdown.length} — ${breakdown[i].slugline}`);
+    const sceneText = await writeSceneScript(breakdown[i], contextLabel, plot, genreLabel, priorSummary);
+    scenes.push({ slugline: breakdown[i].slugline, description: breakdown[i].description, text: sceneText, raised: null });
+    fullText += (fullText ? '\n\n' : '') + sceneText;
+    priorSummary = breakdown[i].description;
+  }
+  return { fullText, scenes };
+}
+
+function renderPlot(plot, format){
+  document.getElementById('pfOutLogline').textContent = plot.logline || '';
+  document.getElementById('pfOutPremise').textContent = plot.premise || '';
+
+  const charsEl = document.getElementById('pfOutCharacters');
+  charsEl.innerHTML = (plot.characters || []).map((c, i) => `
+    <div class="char-card">
+      <div class="char-head">
+        <span class="char-name" contenteditable="true" spellcheck="false" data-field="character:${i}:name">${escapeHtml(c.name || '')}</span>
+        <span class="char-role" contenteditable="true" spellcheck="false" data-field="character:${i}:role">${escapeHtml(c.role || '')}</span>
+      </div>
+      <div class="char-arc" contenteditable="true" spellcheck="false" data-field="character:${i}:arc">${escapeHtml(c.arc || '')}</div>
+    </div>`).join('');
+
+  document.getElementById('pfOutConflict').textContent = plot.conflict || '';
+
+  if(format === 'tv'){
+    pfTvArcSection.style.display = '';
+    pfMovieBeatSection.style.display = 'none';
+    pfOutSeasonArc.innerHTML = (plot.season_arc || []).map(ep => `
+      <div class="arc-row">
+        <div class="arc-ep">EP ${ep.episode}</div>
+        <div>
+          <div class="arc-title-row">
+            <div class="arc-title" contenteditable="true" spellcheck="false" data-field="episode:${ep.episode}:title">${escapeHtml(ep.title || '')}</div>
+            <span class="coverage-badge" data-kind="episode" data-key="${ep.episode}"></span>
+          </div>
+          <div class="arc-beat" contenteditable="true" spellcheck="false" data-field="episode:${ep.episode}:beat">${escapeHtml(ep.beat || '')}</div>
+          <div class="script-slot" data-kind="episode" data-key="${ep.episode}">
+            <button type="button" class="write-btn" data-write="episode:${ep.episode}">Write this episode's script</button>
+          </div>
+        </div>
+      </div>`).join('');
+    document.getElementById('pfOutSeasonTwo').textContent = plot.season_two_hook ? 'Season 2: ' + plot.season_two_hook : '';
+  } else {
+    pfTvArcSection.style.display = 'none';
+    pfMovieBeatSection.style.display = '';
+    pfOutBeatSheet.innerHTML = (plot.beat_sheet || []).map((act, i) => `
+      <div class="act-block">
+        <div class="arc-title-row">
+          <div class="act-name" contenteditable="true" spellcheck="false" data-field="act:${i}:act">${escapeHtml(act.act || '')}</div>
+          <span class="coverage-badge" data-kind="act" data-key="${i}"></span>
+        </div>
+        <ul>${(act.beats || []).map((b, j) => `<li contenteditable="true" spellcheck="false" data-field="act:${i}:beat:${j}">${escapeHtml(b)}</li>`).join('')}</ul>
+        <div class="script-slot" data-kind="act" data-key="${i}">
+          <button type="button" class="write-btn" data-write="act:${i}">Write this act's script</button>
+        </div>
+      </div>`).join('');
+  }
+
+  document.getElementById('pfOutComps').innerHTML = (plot.comps || []).map(c => `<span class="comp-pill">${escapeHtml(c)}</span>`).join('');
+}
+
+function renderEnhance(data){
+  document.getElementById('pfOutIncident').textContent = data.inciting_incident || '';
+  document.getElementById('pfOutStakes').textContent = data.stakes || '';
+  document.getElementById('pfOutTwists').innerHTML = (data.twists || []).map(t => `<li>${escapeHtml(t)}</li>`).join('');
+  document.getElementById('pfOutSubplots').innerHTML = (data.subplots || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+}
+
+// Inline edits to the forged plot (logline, characters, episode beats, act
+// beats) are saved back into pfPlotData as soon as you click away, so
+// corrections happen before you spend calls writing full scripts.
+function handlePlotFieldEdit(e){
+  const el = e.target.closest('[data-field]');
+  if(!el || !pfPlotData) return;
+  const parts = el.getAttribute('data-field').split(':');
+  const newText = el.textContent.trim();
+
+  if(parts[0] === 'logline'){ pfPlotData.logline = newText; }
+  else if(parts[0] === 'premise'){ pfPlotData.premise = newText; }
+  else if(parts[0] === 'conflict'){ pfPlotData.conflict = newText; }
+  else if(parts[0] === 'character'){
+    const idx = parseInt(parts[1], 10), field = parts[2];
+    if(pfPlotData.characters && pfPlotData.characters[idx]) pfPlotData.characters[idx][field] = newText;
+  }
+  else if(parts[0] === 'episode'){
+    const epNum = parts[1], field = parts[2];
+    const ep = (pfPlotData.season_arc || []).find(e2 => String(e2.episode) === String(epNum));
+    if(ep) ep[field] = newText;
+  }
+  else if(parts[0] === 'act'){
+    const actIdx = parseInt(parts[1], 10);
+    if(!pfPlotData.beat_sheet || !pfPlotData.beat_sheet[actIdx]) return;
+    if(parts[2] === 'beat'){
+      const beatIdx = parseInt(parts[3], 10);
+      pfPlotData.beat_sheet[actIdx].beats[beatIdx] = newText;
+    } else {
+      pfPlotData.beat_sheet[actIdx].act = newText;
+    }
+  }
+}
+pfResultsEl.addEventListener('focusout', handlePlotFieldEdit);
+
+function sceneStakesCardHtml(scene, sceneIndex, kind, key){
+  const activeView = scene._view === 'raised' ? 'raised' : 'original';
+  const shownText = activeView === 'raised' && scene.raised ? scene.raised : scene.text;
+  return `<div class="pf-scene-card" data-scene-index="${sceneIndex}">
+      <div class="pf-scene-head">
+        <span class="pf-scene-slug">${escapeHtml(scene.slugline)}</span>
+        <div class="pf-scene-tabs">
+          <button type="button" class="pf-tab ${activeView === 'original' ? 'active' : ''}" data-stakes-tab="original:${kind}:${key}:${sceneIndex}">Original</button>
+          <button type="button" class="pf-tab ${activeView === 'raised' ? 'active' : ''}" data-stakes-tab="raised:${kind}:${key}:${sceneIndex}">Raise the stakes</button>
+        </div>
+      </div>
+      <pre class="script-text pf-scene-text">${escapeHtml(shownText)}</pre>
+    </div>`;
+}
+
+function scriptPanelHtml(seg, kind, key){
+  const scenesHtml = (seg.scenes || []).map((scene, i) => sceneStakesCardHtml(scene, i, kind, key)).join('');
+  return `<div class="script-panel">
+      <div class="script-panel-head">
+        <span>SCRIPT</span>
+        <div class="btn-row">
+          <button type="button" data-copy-script="${kind}:${key}">Copy</button>
+          <button type="button" data-download-script="${kind}:${key}">Download .txt</button>
+          <button type="button" data-pdf-script="${kind}:${key}">Export screenplay PDF</button>
+          <button type="button" data-send-coverage="${kind}:${key}">Send to Coverage →</button>
+        </div>
+      </div>
+      <div class="pf-scene-list">${scenesHtml}</div>
+    </div>`;
+}
+
+function findSegment(kind, key){
+  if(kind === 'episode'){
+    return (pfPlotData.season_arc || []).find(ep => String(ep.episode) === String(key));
+  }
+  return (pfPlotData.beat_sheet || [])[parseInt(key, 10)];
+}
+
+function segmentLabel(kind, key, seg){
+  return kind === 'episode' ? `Episode ${seg.episode}: ${seg.title}` : (seg.act || `Act ${parseInt(key,10)+1}`);
+}
+
+function segmentBeats(kind, seg){
+  return kind === 'episode' ? seg.beat : (seg.beats || []).join('; ');
+}
+
+// Auto-coverage: a lightweight, single-call craft read of a just-written
+// script, shown as a small badge on the episode/act row — so you can spot
+// a weak episode without manually sending it to the Coverage tab.
+async function scoreSegment(seg, label, genreLabel){
+  const prompt = `You are a professional script reader giving a quick craft read of the script below (${genreLabel}).
+
+Return ONLY a JSON object (no markdown fences, no commentary) with:
+- "score": integer 0-100 for overall craft strength (conflict/stakes, pacing, dialogue, structure)
+- "note": one short sentence (max ~18 words) on the single biggest strength or weakness
+
+SCRIPT (${label}):
+${seg.script.slice(0, 6000)}`;
+  const raw = await callClaude(prompt);
+  return parseJsonObjectLoose(raw);
+}
+
+async function runAutoCoverage(seg, kind, key, label, genreLabel){
+  const badge = document.querySelector(`.coverage-badge[data-kind="${kind}"][data-key="${key}"]`);
+  if(!badge) return;
+  badge.className = 'coverage-badge loading';
+  badge.textContent = 'Scoring…';
+  try{
+    const result = await scoreSegment(seg, label, genreLabel);
+    const score = Math.max(0, Math.min(100, Math.round(result.score ?? 50)));
+    const v = verdictFromScore(score);
+    seg.coverageScore = score;
+    seg.coverageNote = result.note || '';
+    badge.className = 'coverage-badge ' + v;
+    badge.textContent = `${score}% · ${v === 'recommend' ? 'RECOMMEND' : v === 'consider' ? 'CONSIDER' : 'PASS'}`;
+    badge.title = seg.coverageNote;
+  } catch(err){
+    badge.className = 'coverage-badge';
+    badge.textContent = '';
+  }
+}
+
+async function runWriteScript(kind, key){
+  const seg = findSegment(kind, key);
+  if(!seg || seg.script) return;
+  const slot = document.querySelector(`.script-slot[data-kind="${kind}"][data-key="${key}"]`);
+  if(!slot) return;
+  const label = segmentLabel(kind, key, seg);
+  const genreLabel = pfGenre === 'unspecified' ? 'unspecified genre' : pfGenre;
+
+  const setLoading = (msg) => { slot.innerHTML = `<div class="script-loading">${escapeHtml(msg)}</div>`; };
+  setLoading(`Writing ${label}…`);
+
+  try{
+    const result = await writeFullScript(label, segmentBeats(kind, seg), pfPlotData, genreLabel, setLoading);
+    seg.script = result.fullText;
+    seg.scenes = result.scenes;
+    slot.innerHTML = scriptPanelHtml(seg, kind, key);
+    runAutoCoverage(seg, kind, key, label, genreLabel); // fire-and-forget — doesn't block the UI
+  } catch(err){
+    slot.innerHTML = `<div class="script-loading">Failed to write ${escapeHtml(label)}: ${escapeHtml(err.message)}. <button type="button" class="write-btn" data-write="${kind}:${key}">Try again</button></div>`;
+  }
+}
+
+async function handleStakesTabClick(view, kind, key, sceneIndex){
+  const seg = findSegment(kind, key);
+  if(!seg || !seg.scenes) return;
+  const scene = seg.scenes[sceneIndex];
+  if(!scene) return;
+  const slot = document.querySelector(`.script-slot[data-kind="${kind}"][data-key="${key}"]`);
+  const card = slot && slot.querySelector(`.pf-scene-card[data-scene-index="${sceneIndex}"]`);
+  if(!card) return;
+
+  if(view === 'original'){
+    scene._view = 'original';
+    card.outerHTML = sceneStakesCardHtml(scene, sceneIndex, kind, key);
+    return;
+  }
+
+  // view === 'raised'
+  if(scene.raised){
+    scene._view = 'raised';
+    card.outerHTML = sceneStakesCardHtml(scene, sceneIndex, kind, key);
+    return;
+  }
+
+  const label = segmentLabel(kind, key, seg);
+  const genreLabel = pfGenre === 'unspecified' ? 'unspecified genre' : pfGenre;
+  const textEl = card.querySelector('.pf-scene-text');
+  const originalContent = textEl.textContent;
+  textEl.textContent = 'Raising the stakes…';
+  card.querySelectorAll('.pf-tab').forEach(b => b.disabled = true);
+  try{
+    scene.raised = await raiseSceneStakes(scene.text, label, pfPlotData, genreLabel);
+    scene._view = 'raised';
+    card.outerHTML = sceneStakesCardHtml(scene, sceneIndex, kind, key);
+  } catch(err){
+    textEl.textContent = originalContent;
+    card.querySelectorAll('.pf-tab').forEach(b => b.disabled = false);
+    alert('Could not raise the stakes for this scene: ' + err.message);
+  }
+}
+
+function scriptDelegatedHandler(e){
+  const writeBtn = e.target.closest('[data-write]');
+  if(writeBtn){
+    const [kind, key] = writeBtn.getAttribute('data-write').split(':');
+    runWriteScript(kind, key);
+    return;
+  }
+  const stakesTab = e.target.closest('[data-stakes-tab]');
+  if(stakesTab){
+    const [view, kind, key, sceneIndex] = stakesTab.getAttribute('data-stakes-tab').split(':');
+    handleStakesTabClick(view, kind, key, parseInt(sceneIndex, 10));
+    return;
+  }
+  const copyBtn = e.target.closest('[data-copy-script]');
+  if(copyBtn){
+    const [kind, key] = copyBtn.getAttribute('data-copy-script').split(':');
+    const seg = findSegment(kind, key);
+    if(seg && seg.script){
+      navigator.clipboard.writeText(seg.script).then(() => {
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+      });
+    }
+    return;
+  }
+  const pdfBtn = e.target.closest('[data-pdf-script]');
+  if(pdfBtn){
+    const [kind, key] = pdfBtn.getAttribute('data-pdf-script').split(':');
+    const seg = findSegment(kind, key);
+    if(seg && seg.script){
+      const label = segmentLabel(kind, key, seg).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      exportScreenplayPdf(`${label}.pdf`, segmentLabel(kind, key, seg), seg.script);
+    }
+    return;
+  }
+  const sendBtn = e.target.closest('[data-send-coverage]');
+  if(sendBtn){
+    const [kind, key] = sendBtn.getAttribute('data-send-coverage').split(':');
+    const seg = findSegment(kind, key);
+    if(seg && seg.script){
+      covScriptInput.value = seg.script;
+      covFileName.textContent = 'Sent from Plot Forge — ' + segmentLabel(kind, key, seg);
+      switchTab('coverage');
+    }
+    return;
+  }
+  const dlBtn = e.target.closest('[data-download-script]');
+  if(dlBtn){
+    const [kind, key] = dlBtn.getAttribute('data-download-script').split(':');
+    const seg = findSegment(kind, key);
+    if(seg && seg.script){
+      const label = segmentLabel(kind, key, seg).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      const blob = new Blob([seg.script], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${label}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+}
+// Single delegated listener per container, attached once — avoids the
+// duplicate-handler bug from re-binding listeners on every re-render.
+pfOutSeasonArc.addEventListener('click', scriptDelegatedHandler);
+pfOutBeatSheet.addEventListener('click', scriptDelegatedHandler);
+
+pfWriteAllEpisodesBtn.addEventListener('click', async () => {
+  const episodes = (pfPlotData && pfPlotData.season_arc) || [];
+  const pending = episodes.filter(ep => !ep.script);
+  if(pending.length === 0) return;
+  pfWriteAllEpisodesBtn.disabled = true;
+  const orig = pfWriteAllEpisodesBtn.textContent;
+  for(let i = 0; i < pending.length; i++){
+    pfWriteAllEpisodesBtn.textContent = `Writing ${i+1}/${pending.length}…`;
+    await runWriteScript('episode', pending[i].episode);
+    if(i < pending.length - 1) await sleep(2000);
+  }
+  pfWriteAllEpisodesBtn.textContent = orig;
+  pfWriteAllEpisodesBtn.disabled = false;
+});
+
+pfWriteFullScreenplayBtn.addEventListener('click', async () => {
+  const acts = (pfPlotData && pfPlotData.beat_sheet) || [];
+  const pendingKeys = acts.map((a, i) => i).filter(i => !acts[i].script);
+  if(pendingKeys.length === 0) return;
+  pfWriteFullScreenplayBtn.disabled = true;
+  const orig = pfWriteFullScreenplayBtn.textContent;
+  for(let i = 0; i < pendingKeys.length; i++){
+    pfWriteFullScreenplayBtn.textContent = `Writing act ${i+1}/${pendingKeys.length}…`;
+    await runWriteScript('act', pendingKeys[i]);
+    if(i < pendingKeys.length - 1) await sleep(2000);
+  }
+  pfWriteFullScreenplayBtn.textContent = orig;
+  pfWriteFullScreenplayBtn.disabled = false;
+});
+
+/* ---------- Build plain-text package (used by all exports) ---------- */
+function buildPlainText(){
+  if(!pfPlotData) return '';
+  let lines = [];
+  lines.push('PLOT FORGE');
+  lines.push(pfFormat === 'tv' ? 'TV SERIES' : 'FEATURE FILM');
+  lines.push('');
+  lines.push('LOGLINE');
+  lines.push(pfPlotData.logline || '');
+  lines.push('');
+  lines.push('WORLD & PREMISE');
+  lines.push(pfPlotData.premise || '');
+  lines.push('');
+  lines.push('CHARACTERS');
+  (pfPlotData.characters || []).forEach(c => {
+    lines.push(`- ${c.name} (${c.role}): ${c.arc}`);
+  });
+  lines.push('');
+  lines.push('CENTRAL CONFLICT & THEME');
+  lines.push(pfPlotData.conflict || '');
+  lines.push('');
+  if(pfFormat === 'tv'){
+    lines.push('SEASON ONE ARC');
+    (pfPlotData.season_arc || []).forEach(ep => {
+      lines.push(`EP ${ep.episode} — ${ep.title}: ${ep.beat}`);
+    });
+    if(pfPlotData.season_two_hook){ lines.push(''); lines.push('Season 2: ' + pfPlotData.season_two_hook); }
+  } else {
+    lines.push('THREE-ACT BEAT SHEET');
+    (pfPlotData.beat_sheet || []).forEach(act => {
+      lines.push(act.act + ':');
+      (act.beats || []).forEach(b => lines.push('  - ' + b));
+    });
+  }
+  lines.push('');
+  lines.push('COMPARABLE TITLES');
+  lines.push((pfPlotData.comps || []).join(', '));
+
+  if(pfEnhanceData){
+    lines.push('');
+    lines.push('ENHANCEMENT PASS');
+    lines.push('Stronger inciting incident: ' + (pfEnhanceData.inciting_incident || ''));
+    lines.push('Raised stakes: ' + (pfEnhanceData.stakes || ''));
+    lines.push('Twist / reversal ideas:');
+    (pfEnhanceData.twists || []).forEach(t => lines.push('  - ' + t));
+    lines.push('Subplot suggestions:');
+    (pfEnhanceData.subplots || []).forEach(s => lines.push('  - ' + s));
+  }
+
+  const scriptedSegments = pfFormat === 'tv'
+    ? (pfPlotData.season_arc || []).filter(ep => ep.script).map(ep => ({ label: `Episode ${ep.episode}: ${ep.title}`, script: ep.script }))
+    : (pfPlotData.beat_sheet || []).filter(act => act.script).map(act => ({ label: act.act, script: act.script }));
+
+  if(scriptedSegments.length){
+    lines.push('');
+    lines.push('='.repeat(40));
+    lines.push('SCRIPTS');
+    lines.push('='.repeat(40));
+    scriptedSegments.forEach(seg => {
+      lines.push('');
+      lines.push(seg.label.toUpperCase());
+      lines.push('-'.repeat(seg.label.length));
+      lines.push(seg.script);
+    });
+  }
+
+  return lines.join('\n');
+}
+
+/* ---------- Shared export helpers (used by both tools) ---------- */
+function downloadTextFile(filename, text){
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyTextToClipboard(text, btnEl){
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btnEl.textContent;
+    btnEl.textContent = 'Copied';
+    setTimeout(() => { btnEl.textContent = orig; }, 1500);
+  }).catch(() => {
+    alert('Could not copy — your browser may be blocking clipboard access.');
+  });
+}
+
+function exportPdf(filename, titleText, subtitleText, bodyText){
+  if(!window.jspdf){ alert('PDF export library failed to load — check your connection and try again.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const margin = 56;
+  const maxWidth = 500;
+  let y = margin;
+  const lineHeight = 15;
+
+  function addLine(text, opts){
+    opts = opts || {};
+    doc.setFont('courier', opts.bold ? 'bold' : 'normal');
+    doc.setFontSize(opts.size || 10);
+    const wrapped = doc.splitTextToSize(text, maxWidth);
+    wrapped.forEach(line => {
+      if(y > 740){ doc.addPage(); y = margin; }
+      doc.text(line, margin, y);
+      y += lineHeight;
+    });
+  }
+
+  addLine(titleText, { bold: true, size: 16 });
+  if(subtitleText) addLine(subtitleText, { size: 10 });
+  y += 10;
+
+  bodyText.split('\n').forEach(line => {
+    const isHeader = line === line.toUpperCase() && line.trim().length > 0 && !line.startsWith('-') && !line.startsWith('  ') && !line.startsWith('EP ') && !line.startsWith('SCENE ');
+    addLine(line, isHeader ? { bold: true, size: 11 } : { size: 10 });
+    if(isHeader) y += 2;
+  });
+
+  doc.save(filename);
+}
+
+// Real screenplay formatting: standard industry margins and per-element
+// indentation (slugline/action at the left margin, character cues and
+// dialogue indented, parentheticals in between), detected line-by-line
+// with simple heuristics, in Courier at 12pt — the format scripts are
+// actually submitted in, not just a readable text dump.
+function classifyScreenplayLine(line, lastType){
+  const t = line.trim();
+  if(!t) return { type: 'blank', text: '' };
+  if(/^(INT|EXT|INT\/EXT|I\/E)[.\s\-\/]/i.test(t)) return { type: 'slugline', text: t };
+  if(/^\(.*\)$/.test(t)) return { type: 'parenthetical', text: t };
+  const isAllCaps = t === t.toUpperCase() && /[A-Z]/.test(t) && t.length <= 40 && !/[a-z]/.test(t);
+  if(isAllCaps && lastType !== 'dialogue' && lastType !== 'parenthetical') return { type: 'character', text: t };
+  if(lastType === 'character' || lastType === 'dialogue' || lastType === 'parenthetical') return { type: 'dialogue', text: t };
+  return { type: 'action', text: t };
+}
+
+function exportScreenplayPdf(filename, titleText, scriptText){
+  if(!window.jspdf){ alert('PDF export library failed to load — check your connection and try again.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+  const pageWidth = 612, pageHeight = 792;
+  const topMargin = 72, bottomMargin = 72;
+  const lineHeight = 14.4; // 12pt Courier, standard single-spaced screenplay line
+
+  const xFor = {
+    slugline: 108, action: 108, character: 302, dialogue: 209, parenthetical: 259
+  };
+  const widthFor = {
+    slugline: pageWidth - 72 - 108, action: pageWidth - 72 - 108,
+    character: pageWidth - 72 - 302, dialogue: 331, parenthetical: pageWidth - 72 - 259
+  };
+
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(14);
+  doc.text(titleText, pageWidth / 2, 300, { align: 'center' });
+  doc.addPage();
+
+  let y = topMargin;
+  let lastType = null;
+
+  scriptText.split('\n').forEach(rawLine => {
+    const { type, text } = classifyScreenplayLine(rawLine, lastType);
+    if(type === 'blank'){
+      y += lineHeight * 0.6;
+      return;
+    }
+    doc.setFont('courier', type === 'slugline' || type === 'character' ? 'bold' : 'normal');
+    doc.setFontSize(12);
+    const wrapped = doc.splitTextToSize(text, widthFor[type]);
+    wrapped.forEach(w => {
+      if(y > pageHeight - bottomMargin){ doc.addPage(); y = topMargin; }
+      doc.text(w, xFor[type], y);
+      y += lineHeight;
+    });
+    if(type === 'slugline') y += lineHeight * 0.5;
+    lastType = type;
+  });
+
+  doc.save(filename);
+}
+
+function exportDocx(filename, bodyText){
+  if(!window.htmlDocx){ alert('DOCX export library failed to load — check your connection and try again.'); return; }
+  const escaped = escapeHtml(bodyText).replace(/\n/g, '<br>');
+  const html = `<html><head><meta charset="utf-8"></head><body style="font-family:'Courier New',monospace; font-size:13px; line-height:1.6;">${escaped}</body></html>`;
+  const converted = window.htmlDocx.asBlob(html);
+  const url = URL.createObjectURL(converted);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- Export handlers ---------- */
+document.getElementById('pfCopyBtn').addEventListener('click', (e) => {
+  copyTextToClipboard(buildPlainText(), e.target);
+});
+document.getElementById('pfTxtBtn').addEventListener('click', () => {
+  downloadTextFile('plot-forge.txt', buildPlainText());
+});
+document.getElementById('pfPdfBtn').addEventListener('click', () => {
+  const text = buildPlainText().split('\n').slice(2).join('\n'); // drop the title/format lines the PDF re-adds
+  exportPdf('plot-forge.pdf', 'PLOT FORGE', pfFormat === 'tv' ? 'TV Series' : 'Feature Film', text);
+});
+document.getElementById('pfDocxBtn').addEventListener('click', () => {
+  exportDocx('plot-forge.docx', buildPlainText());
+});
+
+/* ---------- Forge button ---------- */
+async function runForgeAnalysis(){
+  pfErrorEl.classList.remove('active');
+  pfResultsEl.classList.remove('active');
+  pfEnhanceBlock.classList.remove('active');
+  pfEnhanceData = null;
+
+  const text = pfPilotInput.value.trim();
+  if(!text){
+    pfErrorEl.textContent = 'Paste or upload a pilot script first.';
+    pfErrorEl.classList.add('active');
+    return;
+  }
+
+  pfForgeBtn.disabled = true;
+  pfStatusEl.classList.add('active');
+  pfStatusBar.style.width = '5%';
+  pfStatusText.textContent = 'Reading the pilot…';
+
+  try{
+    pfGenre = document.getElementById('pfGenreSelect').value;
+    const useComps = document.getElementById('pfCompsToggle').checked;
+    pfPlotData = await forgePlot(text, pfFormat, pfGenre, useComps, (label, pct) => {
+      pfStatusText.textContent = label;
+      pfStatusBar.style.width = pct + '%';
+    });
+    pfStatusBar.style.width = '100%';
+    renderPlot(pfPlotData, pfFormat);
+    pfResultsEl.classList.add('active');
+    if(forgeView.classList.contains('active')){
+      pfResultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch(e){
+    pfErrorEl.textContent = 'Something went wrong forging the plot: ' + e.message;
+    pfErrorEl.classList.add('active');
+  } finally {
+    pfForgeBtn.disabled = false;
+    pfStatusEl.classList.remove('active');
+  }
+}
+pfForgeBtn.addEventListener('click', runForgeAnalysis);
+
+// Uploading a file in EITHER tab mirrors the text into the other tab and
+// runs both tools at once — each manages its own status/results UI
+// independently, so one failing doesn't block the other, and whichever
+// tab isn't currently visible just keeps working quietly in the background
+// until you switch to it.
+function afterUploadParsed(sourceTab, text){
+  if(sourceTab === 'coverage'){
+    pfPilotInput.value = text;
+    pfFileName.textContent = 'Synced from Script Coverage upload';
+  } else {
+    covScriptInput.value = text;
+    covFileName.textContent = 'Synced from Plot Forge upload';
+  }
+  Promise.allSettled([runCoverageAnalysis(), runForgeAnalysis()]);
+}
+
+/* ---------- Enhance button ---------- */
+pfEnhanceBtn.addEventListener('click', async () => {
+  if(!pfPlotData) return;
+  pfEnhanceBtn.disabled = true;
+  const orig = pfEnhanceBtn.textContent;
+  pfEnhanceBtn.textContent = 'Enhancing…';
+  try{
+    pfEnhanceData = await enhancePlot(pfPlotData, pfFormat, pfGenre);
+    renderEnhance(pfEnhanceData);
+    pfEnhanceBlock.classList.add('active');
+    pfEnhanceBlock.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch(e){
+    pfErrorEl.textContent = 'Something went wrong enhancing the plot: ' + e.message;
+    pfErrorEl.classList.add('active');
+  } finally {
+    pfEnhanceBtn.disabled = false;
+    pfEnhanceBtn.textContent = orig;
+  }
+});
+
+/* ============================================================
+   SESSION SAVE / LOAD
+   Everything the app holds lives only in this browser tab, so this lets
+   you export the whole working state — both tools — to a JSON file and
+   bring it back later instead of starting over.
+   ============================================================ */
+function gatherSessionState(){
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    coverage: {
+      genre: covGenre,
+      scriptText: covScriptInput.value,
+      results: covResults
+    },
+    forge: {
+      format: pfFormat,
+      genre: pfGenre,
+      pilotText: pfPilotInput.value,
+      plotData: pfPlotData,
+      enhanceData: pfEnhanceData
+    }
+  };
+}
+
+function restoreSessionState(state){
+  if(!state) return;
+
+  if(state.coverage){
+    covScriptInput.value = state.coverage.scriptText || '';
+    covGenre = state.coverage.genre || 'unspecified';
+    document.getElementById('covGenreSelect').value = covGenre;
+    covResults = state.coverage.results || [];
+    if(covResults.length){
+      renderChart(covResults);
+      renderScenes(covResults);
+      renderVerdict(covResults);
+      covResultsEl.classList.add('active');
+    }
+  }
+
+  if(state.forge){
+    pfPilotInput.value = state.forge.pilotText || '';
+    pfGenre = state.forge.genre || 'unspecified';
+    document.getElementById('pfGenreSelect').value = pfGenre;
+    pfFormat = state.forge.format || 'tv';
+    pfFormatToggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.getAttribute('data-format') === pfFormat));
+    pfPlotData = state.forge.plotData || null;
+    pfEnhanceData = state.forge.enhanceData || null;
+    if(pfPlotData){
+      renderPlot(pfPlotData, pfFormat);
+      pfResultsEl.classList.add('active');
+      if(pfEnhanceData){
+        renderEnhance(pfEnhanceData);
+        pfEnhanceBlock.classList.add('active');
+      }
+    }
+  }
+}
+
+document.getElementById('saveSessionBtn').addEventListener('click', () => {
+  downloadTextFile('story-room-session.json', JSON.stringify(gatherSessionState(), null, 2));
+});
+
+const sessionFileInput = document.getElementById('sessionFileInput');
+document.getElementById('loadSessionBtn').addEventListener('click', () => sessionFileInput.click());
+sessionFileInput.addEventListener('change', () => {
+  const f = sessionFileInput.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      restoreSessionState(JSON.parse(e.target.result));
+      document.getElementById('sessionHint').textContent = 'Session loaded from ' + f.name + '.';
+    } catch(err){
+      alert('Could not read this session file: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+});
+</script>
+</body>
+</html>
